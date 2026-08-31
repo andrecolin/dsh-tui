@@ -1,0 +1,33 @@
+{
+  "name": "@acp/dsh-tui-bridge",
+  "version": "0.1.0",
+  "description": "Projects the DSH client face onto the dsh-tui protocol over stdio.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./protocol": "./lib/protocol.js",
+    "./runner": "./lib/runner.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "stub": "node dev-stub.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-api-remotes": "link:../../deepseek-harness/packages/api/remotes",
+    "@deepseek-ai/dsh-client-connection": "link:../../deepseek-harness/packages/client/connection"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  },
+  "dshTui": {
+    "comment": "Dependencies link a local harness checkout: dsh-api-session-controller is unpublished and the published client-face packages trail the checkout. Pin the commit below when upgrading.",
+    "harnessCommit": "cd5ef8148158c3a752a658978873241fdf8e2bbc"
+  },
+  "bin": {
+    "dsh-tui-bridge": "./lib/runner.js"
+  }
+}

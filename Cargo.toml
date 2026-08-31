@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["crates/dsh-tui-proto", "crates/dsh-tui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+dsh-tui-proto = { path = "crates/dsh-tui-proto" }

@@ -1,0 +1,19 @@
+# Rust build output.
+/target
+
+# Node dependencies, and the bridge's compiled output. `bridge/lib` is a build artifact:
+# `pnpm run build` regenerates it, and release tarballs ship it prebuilt so users need no
+# harness checkout to run.
+node_modules/
+bridge/lib/
+*.tsbuildinfo
+
+# Run logs. These normally land outside the repo, but DSH_TUI_LOG_DIR can point here.
+*.ndjson
+
+# Editor and OS scratch.
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/

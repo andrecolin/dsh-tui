@@ -1,0 +1,10 @@
+[package]
+name = "dsh-tui-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Wire types for the dsh-tui protocol spoken with the harness bridge."
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }

@@ -248,6 +248,12 @@ Per-platform detail worth knowing:
   `run.ps1` in place of `run.sh`. No terminal there implements kitty or iTerm2 graphics,
   so images take the placeholder path.
 
+## Support
+
+If dsh-tui is useful to you, you can buy me a coffee at
+[ko-fi.com/andrecolin](https://ko-fi.com/andrecolin). Entirely optional — the project is
+MIT and stays that way.
+
 ## License
 
 MIT — see [LICENSE](LICENSE)

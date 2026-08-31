@@ -61,6 +61,16 @@ cd bridge && pnpm install --ignore-workspace && pnpm run build && cd ..
 cargo test --workspace                               # all 357
 ```
 
+That needs the harness **built**, not merely installed — the same `pnpm run build:lib` the
+Layout section calls for. It earns its keep twice, and the two failures look nothing alike:
+without it the bridge cannot typecheck, because the linked packages resolve their types out
+of `lib/types/`; and `dsh web` cannot serve, because its client bundle is assembled from
+each client package's `lib/`, so the host exits during startup with a module-registry error
+naming whichever package it reached first.
+
+`run.sh` checks for the install and the build before it launches anything, and names the
+command that fixes each, so prefer it over starting the binary by hand.
+
 ## Before opening a PR
 
 ```sh

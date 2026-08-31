@@ -26,6 +26,36 @@ struct Options {
     view: Option<String>,
 }
 
+/// What `--help` prints. Kept next to the parser so the two cannot drift.
+const USAGE: &str = "\
+dsh-tui — a terminal front end for DSH.
+
+Usage:
+  dsh-tui [options]
+  dsh-tui [options] --runtime <command> [args…]
+
+Options:
+  --light | --dark          colour scheme (default: dark)
+  --screenshot <seconds>    render one frame as plain text after N seconds, then exit
+  --view <surface>          open a surface first: settings, models, plugins, general,
+                            workspace, logs, or `rows` to dump the ledger's rows
+  --size <cols>x<rows>      frame size for --screenshot (default: 120x32)
+  --runtime <cmd> [args…]   replace the spawned bridge; consumes every remaining
+                            argument, so it must come last
+  -h, --help                show this help
+  -V, --version             show the version
+
+Environment:
+  DSH_TUI_HOST_COMMAND      program the bridge spawns as the harness host (default: dsh)
+  DSH_TUI_HOST_ARGS         its arguments (default: web --no-open --port 0)
+  DSH_TUI_HOST_CWD          directory to spawn it in
+  DSH_TUI_LOG               error|warn|info|debug|trace|off (default: info)
+  DSH_TUI_LOG_PAYLOADS      1 to record full frame bodies rather than their shapes
+
+The default runtime is the bundled bridge. A source checkout runs it as:
+  dsh-tui --runtime node bridge/lib/runner.js
+";
+
 impl Options {
     fn parse() -> Self {
         // The bridge is the runtime: it boots a harness host and speaks the TUI protocol.
@@ -63,7 +93,23 @@ impl Options {
                     }
                     break;
                 }
-                _ => {}
+                // Both exits happen before the terminal is claimed, so they print to a
+                // normal stdout rather than into an alternate screen.
+                "--help" | "-h" => {
+                    print!("{USAGE}");
+                    std::process::exit(0);
+                }
+                "--version" | "-V" => {
+                    println!("dsh-tui {}", env!("CARGO_PKG_VERSION"));
+                    std::process::exit(0);
+                }
+                // Silently ignoring an unknown flag hid typos behind a UI that then just
+                // looked wrong — `--screenshots 5` rendered a full TUI into a pipe.
+                other => {
+                    eprintln!("dsh-tui: unrecognised argument `{other}`\n");
+                    eprint!("{USAGE}");
+                    std::process::exit(2);
+                }
             }
         }
 

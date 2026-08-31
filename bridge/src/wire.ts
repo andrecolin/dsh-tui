@@ -57,6 +57,11 @@ export class HostConnection {
     this.#cookie = cookie
   }
 
+  /** Request headers carrying the session cookie, or none when the host mints no cookie. */
+  get #auth(): Record<string, string> {
+    return this.#cookie === '' ? {} : { cookie: this.#cookie }
+  }
+
   /**
    * Exchange a launch token for the session cookie the host's API requires.
    *
@@ -67,9 +72,10 @@ export class HostConnection {
     const url = new URL(hostUrl)
     const token = url.searchParams.get('token')
     const base = new URL('/', url)
-    if (token === null) {
-      throw new Error(`host URL carries no launch token: ${hostUrl}`)
-    }
+    // A host built before browser auth announces a bare URL and mints no cookie. It is a
+    // loopback host either way, so the absence of a token is a host property to carry, not
+    // a failure: send no cookie and let `/api` answer for itself.
+    if (token === null) return new HostConnection(base, '')
     const response = await fetch(new URL(`/?token=${encodeURIComponent(token)}`, base), {
       redirect: 'manual',
     })
@@ -85,12 +91,23 @@ export class HostConnection {
     const rpcId = crypto.randomUUID()
     const response = await fetch(new URL(`api/${endpoint}`, this.#base), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: this.#cookie },
+      headers: { 'content-type': 'application/json', ...this.#auth },
       // The gateway requires exactly one plain-object `args` field in the payload.
       body: JSON.stringify({ type: 'client-request', rpcId, method: endpoint, payload: { args } }),
       signal,
     })
     if (!response.ok) {
+      // A host that serves its index but 404s every `/api` endpoint is not missing this
+      // one method — it predates the Remote gateway this bridge speaks. Say that, rather
+      // than reporting the first call as if it were the only casualty.
+      if (response.status === 404) {
+        throw new WireError(
+          'transport',
+          `the harness host does not serve /api/${endpoint}. Its version is likely older `
+          + 'than this bridge expects: dsh-tui needs a host serving /api/remote.mux. '
+          + 'Build from a harness checkout (see the README) rather than an npm `dsh`.',
+        )
+      }
       throw new WireError('transport', `HTTP ${response.status} for ${endpoint}`)
     }
     const envelope = (await response.json()) as {
@@ -180,7 +197,7 @@ export class HostConnection {
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
       // Node's WebSocket takes headers through this option; the host authenticates the
       // upgrade with the same cookie as the unary calls.
-      const socket = new WebSocket(url, { headers: { cookie: this.#cookie } } as never)
+      const socket = new WebSocket(url, { headers: this.#auth } as never)
       socket.addEventListener('message', (event) => {
         let frame: MuxFrame
         try {

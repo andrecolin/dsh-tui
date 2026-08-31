@@ -4,28 +4,99 @@ A terminal front end for [DSH](https://github.com/deepseek-ai/deepseek-harness) 
 feature surface of `dsh web`. One command, no browser, no bound port.
 
 ```sh
-dsh-tui
+./run.sh
 ```
 
 Built on DSH; not an official DeepSeek project.
 
-### Running it against a source checkout
+## Getting started
+
+There is no published binary yet — you build from source. Everything below is one
+copy-pasteable block, but it is worth knowing what the four steps are for, because three of
+them are the harness rather than this repo.
+
+### What you need first
+
+- **Rust** 1.80+ — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- **Node** 22.19+ or 24+, and **pnpm** 10+ — `brew install node pnpm` on macOS
+- a **DSH source checkout**, cloned as a *sibling of this repository*
+
+That last one is the setup trap worth reading twice. `bridge/package.json` links the harness
+through `link:../../deepseek-harness/…` paths, so the expected layout is:
+
+```
+parent/
+├── dsh-tui/
+└── deepseek-harness/
+```
+
+A checkout is required rather than optional: `@deepseek-ai/dsh-api-session-controller` is
+unpublished, and — as of this writing — the `dsh` on npm is **older than the wire this
+bridge speaks**. The published CLI serves `/api/events.mux`; dsh-tui needs a host serving
+`/api/remote.mux`, which today means building the harness yourself. If you point dsh-tui at
+a too-old host it now says so rather than failing obscurely.
+
+### The four steps
 
 ```sh
-cd bridge && pnpm install --ignore-workspace && pnpm run build && cd ..
-cargo build
+git clone https://github.com/deepseek-ai/deepseek-harness ~/deepseek-harness
+git clone https://github.com/andrecolin/dsh-tui ~/dsh-tui        # beside it
 
+# 1 + 2. the harness: install its dependencies, then build its libraries. Both the
+#        bridge's types and the bundle `dsh web` serves come out of that build.
+cd ~/deepseek-harness
+pnpm install
+pnpm run build:lib
+
+# 3. the bridge: the TypeScript half of dsh-tui.
+cd ~/dsh-tui/bridge
+pnpm install --ignore-workspace
+pnpm run build
+
+# 4. the front end itself.
+cd ~/dsh-tui
+cargo build --release
+
+./run.sh
+```
+
+Step 2 is the one most easily missed, and it is slow — a few minutes, and it compiles the
+whole harness. `run.sh` checks for all of it up front and names the exact command to run if
+something is absent, so if it starts, it will connect.
+
+If your harness lives somewhere other than `~/deepseek-harness`, point `DSH_HARNESS` at it:
+
+```sh
+DSH_HARNESS=/path/to/deepseek-harness ./run.sh
+```
+
+`run.sh` prefers `target/release/dsh-tui` and falls back to `target/debug/dsh-tui`, so a
+plain `cargo build` is enough to try it.
+
+### Checking it without a terminal
+
+```sh
+./run.sh --screenshot 30 --size 120x35
+```
+
+That renders one frame as plain text and exits, which is the fastest way to confirm the
+whole stack is talking. Give it enough seconds for the harness to boot — first run is
+slower than later ones. A frame whose status bar reads `connected` is a working install;
+`disconnected` means the harness host exited, and `^l` or
+`~/.local/state/dsh-tui/latest.ndjson` has the reason.
+
+### Running it by hand
+
+`run.sh` is a convenience wrapper over three environment variables and one flag:
+
+```sh
 DSH_TUI_HOST_COMMAND=node \
 DSH_TUI_HOST_ARGS="--import tsx/esm apps/cli/src/bin.ts web --no-open --port 0" \
 DSH_TUI_HOST_CWD=/path/to/deepseek-harness \
   ./target/debug/dsh-tui --runtime node bridge/lib/runner.js
 ```
 
-Or, with a release build and the harness at `~/deepseek-harness`, just:
-
-```sh
-./run.sh
-```
+`dsh-tui --help` lists every flag and environment variable.
 
 `--screenshot <seconds>` renders one frame as plain text and exits, so the whole stack can be
 checked without a terminal; `--view settings|models|plugins|general|workspace|logs` opens a
@@ -221,6 +292,18 @@ pulls in nothing but `node:child_process` and `node:readline`. The checkout is a
 dependency, not a runtime one — which is why releases can ship a prebuilt `bridge/lib`
 that runs anywhere Node does.
 
+A **build** dependency still has to be built, though — `pnpm install` in the harness is not
+enough on its own, for two independent reasons that produce entirely different failures:
+
+- the bridge **cannot typecheck**, because those linked packages resolve their `types` to
+  `lib/types/*.d.ts`, which only a build produces. `pnpm install` links them anyway, so it
+  surfaces later as `TS2307` plus a cascade of implicit-`any` errors;
+- `dsh web` **cannot serve**, because its client bundle is assembled from each client
+  package's `lib/`. The host then exits during startup with a module-registry error naming
+  whichever package it reached first.
+
+`pnpm run build:lib` in the checkout settles both.
+
 Only the Rust side builds without it. `cargo test --workspace --lib` and the
 `bridge_protocol`, `keys` and `render` integration tests run from a clean clone against
 `bridge/dev-stub.mjs`; `tests/real_bridge.rs` needs the compiled bridge and is the one
@@ -234,13 +317,20 @@ call — the `latest.ndjson` symlink — is already behind `cfg(unix)`.
 Binaries are not portable between them, or between glibc versions: build on the target, or
 build `--target x86_64-unknown-linux-musl` for a static Linux binary that runs on anything.
 A copied install needs four things, not one — the binary, `bridge/lib/`, Node, and
-something serving `dsh web`. That last one need not be a source checkout; if `dsh` is on
-`PATH`:
+something serving `dsh web`. That last one need not in principle be a source checkout; if
+`dsh` is on `PATH`:
 
 ```sh
 DSH_TUI_HOST_COMMAND=dsh DSH_TUI_HOST_ARGS="web --no-open --port 0" \
   ./dsh-tui --runtime node bridge/lib/runner.js
 ```
+
+In practice that does not work yet. The `dsh` published to npm — 0.1.1-rc.2 at the time of
+writing — serves the older `/api/events.mux` gateway and announces a URL carrying no launch
+token; this bridge speaks `/api/remote.mux`. The result is every call answered with a 404,
+which dsh-tui now reports as the version skew it is rather than as a missing method. Until a
+new enough `dsh` ships, **use a source checkout** — which is what `run.sh` does. The
+tokenless case is handled either way, so a host without browser auth connects normally.
 
 Per-platform detail worth knowing:
 

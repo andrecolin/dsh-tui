@@ -50,14 +50,17 @@ async function hostUrl(child: ChildProcess): Promise<string> {
   async function scan(): Promise<string> {
     for await (const line of lines) {
       seen.push(line)
-      // The launcher prints exactly one line carrying the URL and its launch token.
-      const match = /(https?:\/\/\S+token=\S+)/.exec(line)
+      // The launcher prints one line carrying the URL. A host with browser auth appends
+      // its launch token; one without does not, and matching only the token form left
+      // this loop waiting forever on a URL that was already on screen.
+      const match = /(https?:\/\/\S+)/.exec(line)
       if (match?.[1] !== undefined) {
         lines.close()
-        // The URL carries the launch token, so the log records that one arrived, never
+        // The URL may carry the launch token, so the log records that one arrived, never
         // the URL itself — and never the token.
         log.info('host.ready', 'the harness host announced its loopback URL', {
           waitedMs: Date.now() - started,
+          authenticated: match[1].includes('token='),
         })
         return match[1]
       }

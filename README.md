@@ -177,6 +177,9 @@ so no generated code lives in the bridge and none in Rust. See
 
 ## Development
 
+[CONTRIBUTING.md](CONTRIBUTING.md) has the full setup, the test split, and the house
+style. The short version:
+
 The Rust side develops against a stub bridge, so it needs no harness build:
 
 ```sh

@@ -12,9 +12,31 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 
 import * as log from './log.js'
-import { EXPECTED_EVENTS } from './protocol.js'
+import { EXPECTED_EVENTS, isWaterfall } from './protocol.js'
 import { BridgeServer, type BridgeBackend } from './server.js'
 import { HostConnection, WireError } from './wire.js'
+
+/** The frames the Gateway sends down its forwarded-event stream. */
+interface ReadyFrame { type: 'ready'; clientId: string; host?: { home?: string } }
+interface EmitFrame { type: 'emit'; event: string; args: unknown[] }
+interface WaterfallFrame {
+  type: 'waterfall'
+  event: string
+  eventId: string
+  agentId: string
+  request: Record<string, unknown>
+}
+interface CancelFrame { type: 'cancel'; eventId: string }
+type EventFrame = ReadyFrame | EmitFrame | WaterfallFrame | CancelFrame
+
+/** What one settled waterfall tells the host. Mirrors the Gateway's `RemoteEventResult`. */
+type EventOutcome =
+  | { kind: 'next' }
+  | { kind: 'result'; value?: unknown }
+  | { kind: 'rejected'; error: { name: string; message: string } }
+
+/** Separates "the TUI delegated" from any value it could legitimately answer with. */
+const DELEGATED = Symbol('delegated')
 
 /** Remote namespaces the TUI addresses. Reported in the handshake. */
 const NAMESPACES = [
@@ -99,6 +121,122 @@ function endpointOf(namespace: string, method: string): string {
   return `${namespace}/${method}`
 }
 
+/**
+ * Open the forwarded-event stream and read its opening `ready` frame.
+ *
+ * Separate from the pump below because the handshake needs what `ready` carries — the
+ * client id and the host's home — before the TUI is told the bridge is up.
+ */
+async function openEvents(
+  connection: HostConnection,
+  signal: AbortSignal,
+): Promise<{ clientId: string; host: { home?: string }; frames: AsyncIterator<unknown> }> {
+  const frames = connection.events(signal)[Symbol.asyncIterator]()
+  let first
+  try {
+    first = await frames.next()
+  } catch (error) {
+    // A host with no `$events` endpoint fails here, and it is worth naming: without this
+    // stream nothing else visibly breaks, so the symptom would otherwise be an agent that
+    // asks a question no one is ever shown.
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`could not open the harness's forwarded-event stream: ${reason}`)
+  }
+  if (first.done === true) {
+    throw new Error('the forwarded-event stream closed before it announced itself')
+  }
+  const frame = first.value as EventFrame
+  if (frame.type !== 'ready') {
+    throw new Error(`the forwarded-event stream opened with "${frame.type}", not "ready"`)
+  }
+  return { clientId: frame.clientId, host: frame.host ?? {}, frames }
+}
+
+/**
+ * Forward host events to the TUI, and settled waterfalls back to the host.
+ *
+ * This is what makes `ask_user_question` and `approval/request` reach a human. Without it
+ * the handshake still advertises every forwarded event and none ever arrives: the agent
+ * blocks on a waterfall nobody is shown, and prompts typed afterwards queue behind a turn
+ * that cannot end.
+ */
+function pumpEvents(
+  connection: HostConnection,
+  server: BridgeServer,
+  frames: AsyncIterator<unknown>,
+  clientId: string,
+  signal: AbortSignal,
+): void {
+  // A waterfall the host withdraws while the human is still deciding. Replying then would
+  // quote an event id it no longer knows, so the reply is dropped instead.
+  const cancelled = new Set<string>()
+
+  const reply = async (eventId: string, outcome: EventOutcome): Promise<void> => {
+    if (cancelled.delete(eventId)) {
+      log.info('event.cancelled', 'the host withdrew a waterfall before it was answered', {
+        eventId,
+      })
+      return
+    }
+    try {
+      await connection.eventResult({ clientId, eventId, outcome }, signal)
+    } catch (error) {
+      log.error('event.result.failed', error instanceof Error ? error.message : String(error), {
+        eventId,
+        kind: outcome.kind,
+      })
+    }
+  }
+
+  const settle = async (frame: WaterfallFrame): Promise<void> => {
+    // A forwarded waterfall this build has no surface for must be handed back rather than
+    // answered, or the agent is stuck behind a question that will never be rendered.
+    if (!isWaterfall(frame.event)) {
+      log.warn('event.unrenderable', `delegating ${frame.event}: not a waterfall this build answers`, {
+        event: frame.event,
+      })
+      await reply(frame.eventId, { kind: 'next' })
+      return
+    }
+    try {
+      const value = await server.ask(frame.event, frame.agentId, [frame.request], () => DELEGATED)
+      // `{kind:'result'}` and `{kind:'result', value: undefined}` are not the same to the
+      // host: it validates the payload's keys exactly.
+      await reply(frame.eventId, value === DELEGATED
+        ? { kind: 'next' }
+        : value === undefined ? { kind: 'result' } : { kind: 'result', value })
+    } catch (error) {
+      await reply(frame.eventId, {
+        kind: 'rejected',
+        error: {
+          name: error instanceof Error ? error.name : 'Error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      })
+    }
+  }
+
+  void (async () => {
+    try {
+      for (let next = await frames.next(); next.done !== true; next = await frames.next()) {
+        const frame = next.value as EventFrame
+        if (frame.type === 'emit') {
+          server.emitEvent(frame.event, frame.args)
+        } else if (frame.type === 'waterfall') {
+          // Not awaited: a blocked agent must not stall the events behind it.
+          void settle(frame)
+        } else if (frame.type === 'cancel') {
+          cancelled.add(frame.eventId)
+        }
+      }
+      log.warn('event.stream.ended', 'the forwarded-event stream ended; no more events will arrive')
+    } catch (error) {
+      if (signal.aborted) return
+      log.error('event.stream.failed', error instanceof Error ? error.message : String(error))
+    }
+  })()
+}
+
 async function main(): Promise<void> {
   const command = process.env['DSH_TUI_HOST_COMMAND'] ?? 'dsh'
   const args = (process.env['DSH_TUI_HOST_ARGS'] ?? 'web --no-open --port 0').split(' ')
@@ -122,6 +260,14 @@ async function main(): Promise<void> {
     ms: Date.now() - connecting,
   })
 
+  // Opened before the handshake: `ready` carries the client id every waterfall reply must
+  // quote, and the host home the TUI abbreviates paths with.
+  const events = new AbortController()
+  const opened = await openEvents(connection, events.signal)
+  log.info('host.events', 'opened the forwarded-event stream', {
+    home: opened.host.home ?? null,
+  })
+
   const backend: BridgeBackend = {
     async call(ns, method, args, signal) {
       return connection.call(endpointOf(ns, method), args ?? {}, signal)
@@ -142,16 +288,19 @@ async function main(): Promise<void> {
     },
     namespaces: () => NAMESPACES,
     events: () => [...EXPECTED_EVENTS],
-    host: () => ({}),
-    clientId: () => undefined,
+    host: () => opened.host,
+    clientId: () => opened.clientId,
   }
 
   const server = new BridgeServer(backend, process.stdout)
   server.listen(process.stdin)
+  // Before `ready`, which promises the TUI that every forwarded-event listener is attached.
+  pumpEvents(connection, server, opened.frames, opened.clientId, events.signal)
   server.ready()
 
   const shutdown = (): void => {
     log.info('bridge.signal', 'received a termination signal')
+    events.abort()
     server.dispose('bridge shutting down')
     connection.close()
     child.kill()

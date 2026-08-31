@@ -19,6 +19,18 @@
  * @module
  */
 
+/**
+ * The Gateway-internal endpoints carrying forwarded host events, mirrored from the
+ * harness's `packages/api/gateway/src/stream-protocol.ts`.
+ *
+ * Inlined rather than imported because every harness import in this package is
+ * `import type`: `bridge/lib` has to keep running with no checkout present, and these are
+ * runtime values. That file is the normative copy — PROTOCOL.md covers the TUI's side of
+ * the bridge, not the host's.
+ */
+const EVENT_STREAM_ENDPOINT = '$events'
+const EVENT_RESULT_ENDPOINT = '$events/result'
+
 /** One logical stream's frames, as the mux carries them. */
 interface MuxFrame {
   type: 'item' | 'end' | 'error'
@@ -125,6 +137,30 @@ export class HostConnection {
       throw new WireError(error.code ?? 'internal', error.message ?? endpoint, error.details)
     }
     return result.value
+  }
+
+  /**
+   * Open the Gateway's forwarded-event stream.
+   *
+   * One more logical stream on the same mux, carrying `ready`, then `emit` for one-way
+   * events and `waterfall` for the two that block the agent until a human answers. The
+   * opening `ready` frame carries the client id every later result must quote, so the
+   * caller has to read it before announcing itself.
+   */
+  async *events(signal: AbortSignal): AsyncIterable<unknown> {
+    for await (const item of this.stream(EVENT_STREAM_ENDPOINT, {}, signal)) {
+      yield item.value
+    }
+  }
+
+  /**
+   * Reply to one waterfall the host is blocked on.
+   *
+   * The unary carrier, not the mux: the host correlates the reply by the `eventId` inside
+   * it rather than by the stream it arrived on.
+   */
+  async eventResult(result: unknown, signal: AbortSignal): Promise<void> {
+    await this.call(EVENT_RESULT_ENDPOINT, result, signal)
   }
 
   /** Open one logical stream over the shared mux socket. */

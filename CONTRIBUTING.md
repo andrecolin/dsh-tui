@@ -18,6 +18,22 @@ parent/
 packages trail a current checkout by a minor version, so there is no registry-only path.
 Clone the harness beside this repo and record its commit in `dshTui.harnessCommit`.
 
+**The harness must be built before the bridge will typecheck.** All three packages resolve
+their `types` to `lib/types/*.d.ts`, which is build output — a fresh checkout has none, and
+`pnpm install` will still link the packages happily, so the failure surfaces later as
+`TS2307: Cannot find module '@deepseek-ai/cordis'` plus a cascade of implicit-`any` errors
+from the now-untyped imports. Only the `TS2307`s are real.
+
+```sh
+cd ../deepseek-harness
+pnpm install
+pnpm run build          # or the narrower `pnpm run build:lib`
+```
+
+Check out the commit named in `dshTui.harnessCommit` rather than whatever `main` happens to
+be. A newer checkout may typecheck, but the pin is what makes a bridge failure attributable;
+if you deliberately move to a newer harness, update the pin in the same change.
+
 ## What builds without the harness
 
 Most of it. Those bridge imports are all `import type`, so they vanish at compile time and

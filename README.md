@@ -191,9 +191,11 @@ cargo run -- --runtime node bridge/test-server.mjs  # drive it against the real 
 Every one of those commands writes a log; `DSH_TUI_LOG=trace` on the front makes a failing
 run self-describing, and `docs/LOGGING.md` has the recipes for reading it.
 
-The bridge builds against a local harness checkout:
+The bridge builds against a local harness checkout, which must itself be built first —
+the linked packages resolve their types to `lib/`, which only a build produces:
 
 ```sh
+cd ../deepseek-harness && pnpm install && pnpm run build && cd -
 cd bridge && pnpm install --ignore-workspace && pnpm run typecheck
 ```
 

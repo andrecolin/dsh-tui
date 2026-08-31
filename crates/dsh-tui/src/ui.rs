@@ -764,8 +764,10 @@ fn row_style(row: &Row, theme: &crate::theme::Theme) -> Style {
     match row.kind {
         RowKind::User => Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         RowKind::Assistant => Style::default().fg(theme.text),
+        // Italic stays for the terminals that have it, but the color is what carries the
+        // distinction: Terminal.app renders no italics at all.
         RowKind::Reasoning => Style::default()
-            .fg(theme.text_dim)
+            .fg(theme.reasoning)
             .add_modifier(Modifier::ITALIC),
         RowKind::ToolCall => Style::default().fg(theme.text),
         RowKind::ToolResult => Style::default().fg(theme.text_dim),
@@ -780,6 +782,9 @@ fn gutter_color(row: &Row, theme: &crate::theme::Theme) -> ratatui::style::Color
     match row.kind {
         RowKind::User | RowKind::ToolCall => theme.accent,
         RowKind::ToolResult => theme.success,
+        // The `·` marking reasoning takes the same hue as its text, so the column reads
+        // as one run of thinking rather than a dim dot beside coloured prose.
+        RowKind::Reasoning => theme.reasoning,
         _ => theme.text_dim,
     }
 }

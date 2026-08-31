@@ -125,6 +125,14 @@ pub struct Theme {
     pub danger: Color,
     pub success: Color,
     pub warning: Color,
+    /// The model's reasoning, as distinct from its answer.
+    ///
+    /// Has no `--dsw-*` counterpart: the web client separates thinking from prose with
+    /// layout the terminal has no room for, so the distinction has to be carried by color.
+    /// It cannot be carried by italics alone — Terminal.app, still the default on macOS,
+    /// does not render them, which left reasoning and answer looking identical there.
+    /// Violet is the one hue the rest of this palette leaves free.
+    pub reasoning: Color,
 }
 
 impl Theme {
@@ -144,6 +152,9 @@ impl Theme {
                 danger: Color::Rgb(232, 92, 92),
                 success: Color::Rgb(90, 186, 130),
                 warning: Color::Rgb(219, 165, 74),
+                // Sits below `text` in luminance, so reasoning still recedes behind the
+                // answer the way the dim grey did, but is no longer only a shade of it.
+                reasoning: Color::Rgb(154, 140, 208),
             },
             Mode::Light => Self {
                 mode,
@@ -157,6 +168,9 @@ impl Theme {
                 danger: Color::Rgb(200, 60, 60),
                 success: Color::Rgb(46, 150, 96),
                 warning: Color::Rgb(176, 124, 30),
+                // Darker than its dark-mode twin: on white the same violet would be the
+                // faintest thing on screen rather than a quieter one.
+                reasoning: Color::Rgb(114, 99, 168),
             },
         }
     }

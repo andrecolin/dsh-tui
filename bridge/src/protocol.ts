@@ -54,6 +54,7 @@ export const EXPECTED_EVENTS = [
   'api-session/status',
   'commands/change',
   'credentials/reference-updated',
+  'goal/activation-changed',
   'cordis/request-run',
   'cordis/request-run-resolved',
   'cordis/dynamic-package',
@@ -61,6 +62,10 @@ export const EXPECTED_EVENTS = [
   'cordis/inspect-query',
   'cordis/inspect-query-resolved',
   'llm/adapters-updated',
+  'permission-presets/catalog-changed',
+  'plugin-manager/changed',
+  'plugin-manager/install-log',
+  'plugin-manager/install-state',
   'settings/document-updated',
   'user-questions/request',
 ] as const

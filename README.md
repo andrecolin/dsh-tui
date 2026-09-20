@@ -98,6 +98,15 @@ DSH_TUI_HOST_CWD=/path/to/deepseek-harness \
 
 `dsh-tui --help` lists every flag and environment variable.
 
+The host boots your own `web` profile. If that profile mounts a plugin that reads its
+configuration from the environment and fails closed (an MCP server given a database URL,
+say), the host exits at boot and the TUI can only show "harness runtime exited". Point
+`DSH_TUI_ENV_FILE` at an env file and `run.sh` exports it to the host first:
+
+```sh
+DSH_TUI_ENV_FILE=~/path/to/.env ./run.sh
+```
+
 `--screenshot <seconds>` renders one frame as plain text and exits, so the whole stack can be
 checked without a terminal; `--view settings|models|plugins|general|workspace|logs` opens a
 surface first, `--view rows` dumps the ledger's rows instead of a frame, and

@@ -103,7 +103,7 @@ The protocol is bidirectional because the harness needs answers, not just attent
 | Unary call | TUI → bridge | `ctx.remote.<ns>.<method>(...)` |
 | Journal stream | bridge → TUI | `SessionEventStream` — follow-before-page, `replace`/`prepend`/`append`, gap repair |
 | Snapshot stream | bridge → TUI | `SessionControlStream` — full baseline per generation, then deltas |
-| Ordinary event | bridge → TUI | 17 one-way forwarded events |
+| Ordinary event | bridge → TUI | 21 one-way forwarded events |
 | Waterfall request | **bridge → TUI** | `approval/request`, `user-questions/request` — blocking, needs a result or `next()` |
 
 The waterfalls are why a one-way event feed is not enough: a permission prompt and an

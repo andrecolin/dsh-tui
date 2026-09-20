@@ -340,6 +340,8 @@ mod tests {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
     User,
+    /// A `user/message` some producer other than the human injected into model history.
+    Context,
     Assistant,
     Reasoning,
     ToolCall,
@@ -506,6 +508,10 @@ fn is_fragment(record: &HistoryRecord) -> bool {
 fn row_kind(record: &HistoryRecord) -> RowKind {
     let event = record.event();
     match event.kind.as_str() {
+        // The web client's rule: a `user/message` is the human's only when its source says
+        // so. Anything else — runtime context, agent instructions, a recalled session — is
+        // model-facing text, and printing it as a prompt puts words in the user's mouth.
+        "user/message" if is_injected(&event.data) => RowKind::Context,
         "user/message" => RowKind::User,
         "assistant/message" | "chunkrow/text-chunks" => RowKind::Assistant,
         "chunkrow/reasoning-chunks" => RowKind::Reasoning,
@@ -576,8 +582,34 @@ fn row_body(record: &HistoryRecord, kind: RowKind) -> (String, &'static str, boo
         },
         RowKind::TurnBoundary => (String::new(), " ", false),
         RowKind::User => (extract_text(&event.data).unwrap_or_default(), "›", false),
+        // Collapsed to its producer, as the web client's closed disclosure is: the body can
+        // run to pages and none of it is conversation.
+        RowKind::Context => (format!("context · {}", context_label(&event.data)), "▸", false),
         RowKind::Other => (extract_text(&event.data).unwrap_or_default(), " ", false),
     }
+}
+
+/// Whether a `user/message` was injected rather than typed. A record with no `source` at
+/// all predates the field and is the human's.
+fn is_injected(data: &Value) -> bool {
+    data.get("source")
+        .and_then(|source| source.get("kind"))
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind != "user")
+}
+
+/// The producer's name, mirroring the web client's `contextProducer`. The source map is
+/// merge-extensible upstream, so an unknown producer stays visible by its durable kind.
+fn context_label(data: &Value) -> String {
+    let source = data.get("source");
+    let field = |name: &str| source.and_then(|s| s.get(name)).and_then(Value::as_str);
+    let kind = field("kind").unwrap_or("inject");
+    let named = match kind {
+        "plugin" => field("plugin"),
+        "skill-invocation" => field("name"),
+        _ => None,
+    };
+    named.unwrap_or(kind).to_string()
 }
 
 /// Results can be long; the row shows the first line and the card owns the rest.
@@ -783,6 +815,44 @@ mod display_tests {
             Some("plain".to_string())
         );
         assert_eq!(extract_text(&serde_json::json!({ "other": 1 })), None);
+    }
+
+    #[test]
+    fn an_injected_user_message_is_context_not_a_prompt() {
+        let sourced = |seq: u64, source: serde_json::Value, text: &str| HistoryRecord::Event {
+            event: dsh_tui_proto::SessionEvent {
+                kind: "user/message".into(),
+                seq,
+                time: Some(0),
+                data: serde_json::json!({
+                    "source": source,
+                    "content": [{ "type": "text", "text": text }]
+                }),
+            },
+        };
+        let mut ledger = Ledger::new();
+        ledger.apply(
+            1,
+            &JournalItem::delta(
+                JournalChange::Replace,
+                vec![
+                    sourced(
+                        1,
+                        serde_json::json!({ "kind": "plugin", "plugin": "runtime-context" }),
+                        "Current runtime context.\nmany lines",
+                    ),
+                    sourced(2, serde_json::json!({ "kind": "user" }), "count the patients"),
+                    // A record written before `source` existed is still the human's.
+                    text_event("user/message", 3, "no source"),
+                ],
+            ),
+        );
+        let rows = ledger.rows();
+        assert_eq!(rows[0].kind, RowKind::Context);
+        assert_eq!(rows[0].text, "context · runtime-context");
+        assert_eq!(rows[1].kind, RowKind::User);
+        assert_eq!(rows[1].text, "count the patients");
+        assert_eq!(rows[2].kind, RowKind::User);
     }
 
     #[test]

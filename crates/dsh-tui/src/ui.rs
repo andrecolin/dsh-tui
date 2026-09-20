@@ -771,7 +771,9 @@ fn row_style(row: &Row, theme: &crate::theme::Theme) -> Style {
             .add_modifier(Modifier::ITALIC),
         RowKind::ToolCall => Style::default().fg(theme.text),
         RowKind::ToolResult => Style::default().fg(theme.text_dim),
-        RowKind::TurnBoundary | RowKind::Other => Style::default().fg(theme.text_dim),
+        RowKind::TurnBoundary | RowKind::Context | RowKind::Other => {
+            Style::default().fg(theme.text_dim)
+        }
     }
 }
 

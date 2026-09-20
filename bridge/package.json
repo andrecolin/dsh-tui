@@ -25,7 +25,7 @@
   },
   "dshTui": {
     "comment": "Dependencies link a local harness checkout: dsh-api-session-controller is unpublished and the published client-face packages trail the checkout. Pin the commit below when upgrading.",
-    "harnessCommit": "cd5ef8148158c3a752a658978873241fdf8e2bbc"
+    "harnessCommit": "ddefc45fbc7f8e46dd73185e68295696d1297887"
   },
   "bin": {
     "dsh-tui-bridge": "./lib/runner.js"

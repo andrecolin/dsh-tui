@@ -42,6 +42,20 @@ if [[ ! -f "$HARNESS/packages/client/ui-user-questions/lib/client.js" ]]; then
   ('dsh web' serves a client bundle; without it the host exits during startup.)"
 fi
 
+# The host boots the user's `web` profile, plugins and all. A profile plugin that reads its
+# configuration from the environment and is mounted fail-closed takes the whole host down
+# when that variable is absent, which the TUI can only report as "harness runtime exited".
+# Name an env file here to give the host what the profile expects.
+if [[ -n "${DSH_TUI_ENV_FILE:-}" ]]; then
+  if [[ ! -r "$DSH_TUI_ENV_FILE" ]]; then
+    die "env file not readable: $DSH_TUI_ENV_FILE (from DSH_TUI_ENV_FILE)"
+  fi
+  set -a
+  # shellcheck disable=SC1090
+  source "$DSH_TUI_ENV_FILE"
+  set +a
+fi
+
 export DSH_TUI_HOST_COMMAND=node
 export DSH_TUI_HOST_ARGS="--import tsx/esm apps/cli/src/bin.ts web --no-open --port 0"
 export DSH_TUI_HOST_CWD="$HARNESS"
